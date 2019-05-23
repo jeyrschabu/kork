@@ -36,6 +36,9 @@ class SelectableServiceSpec extends Specification {
   @Shared
   def bakeryService = "bakery"
 
+  @Shared
+  def altBakeryService = "alternativeBakeryService"
+
   @Unroll
   def "should lookup service by application or executionType"() {
     given:
@@ -70,6 +73,61 @@ class SelectableServiceSpec extends Specification {
     [application: "spintest", executionType: "orchestration", origin: "api", authenticatedUser: "user1@email.com"]       || bakeryService    // user selector is highest priority
     [application: "spintest", executionType: "orchestration", origin: "api", authenticatedUser: "user2@random.com"]      || bakeryService    // user selector is highest priority
     [location: "us-east-1"]                                                                                              || bakeryService    // selects by location
+  }
+
+  @Unroll
+  def "should lookup service by parameters"() {
+    given:
+    def selectableService = new SelectableService(
+      [
+        new DefaultServiceSelector(bakeryService, 1, [:]),
+        new ByParameterServiceSelector(bakeryService, 10, [
+          "parameters": [
+            [
+              name: "cloudProvider",
+              values: ["aws", "titus"]
+            ],
+            [
+              name: "authenticatedUser",
+              values: ["regex:.*@netflix.com\$"]
+            ]
+          ]
+        ]),
+        new ByParameterServiceSelector(altBakeryService, 10, [
+          "parameters": [
+            [
+              name: "OS",
+              values: ["windows", "centOS"]
+            ],
+            [
+              name: "altBakeryServiceFlag",
+              values: [true]
+            ],
+            [
+              name: "authenticatedUser",
+              values: ["regex:.*@company.com\$"]
+            ]
+          ] as List<Map<String, Object>>
+        ])
+      ]
+    )
+
+    when:
+    def criteria = new SelectableService.Criteria().withParameters(
+      parameters as List<SelectableService.Criteria.Parameter>
+    )
+
+    def service = selectableService.getService(criteria)
+
+    then:
+    service == expectedService
+
+    where:
+    parameters                                                                                           ||  expectedService
+    [new SelectableService.Criteria.Parameter(name: "OS", values: ["centOS"])]                           ||  altBakeryService
+    [new SelectableService.Criteria.Parameter(name: "cloudProvider", values: ["titus"])]                 ||  bakeryService
+    [new SelectableService.Criteria.Parameter(name: "authenticatedUser", values: ["test@company.com"])]  ||  altBakeryService
+    [new SelectableService.Criteria.Parameter(name: "authenticatedUser", values: ["test@netflix.com"])]  ||  bakeryService
   }
 
   def "should default to all execution types if none configured (by origin selector)"() {
